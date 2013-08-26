@@ -1,0 +1,13 @@
+buccioni_sitemap:
+    pattern: /sitemap.xml
+    defaults: { _controller: buccioni_sitemap.controller:sitemap, _format: xml }
+    requirements: 
+        _method: GET
+        _format: xml
+
+buccioni_sitemap_index:
+    pattern: /sitemapindex.xml
+    defaults: { _controller: buccioni_sitemap.controller:sitemapIndex, _format: xml }
+    requirements: 
+        _method: GET
+        _format: xml

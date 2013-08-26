@@ -1,0 +1,39 @@
+parameters:
+    buccioni_sitemap.class: Buccioni\Bundle\SitemapBundle\Manager\Sitemap
+    buccioni_sitemap.controller.class: Buccioni\Bundle\SitemapBundle\Controller\SitemapController
+    buccioni_sitemap.entity.url.class: Buccioni\Bundle\SitemapBundle\Entity\Url
+    buccioni_sitemap.repository.url.class: Buccioni\Bundle\SitemapBundle\Repository\UrlRepository
+    buccioni_sitemap.provider.chain.class: Buccioni\Bundle\SitemapBundle\Provider\UrlProviderChain
+    buccioni_sitemap.twig.extension.class: Buccioni\Bundle\SitemapBundle\Twig\SitemapExtension
+
+services:
+    buccioni_sitemap:
+        class: %buccioni_sitemap.class%
+        arguments:
+            - @templating
+            - %buccioni_sitemap.config.dir%
+            - %buccioni_sitemap.config.dir_server_path%
+            - %buccioni_sitemap.config.base_url%
+            - %buccioni_sitemap.config.url_limit%
+            - %buccioni_sitemap.config.file_name%
+            - %buccioni_sitemap.config.index_file_name%
+            - %buccioni_sitemap.config.swap_sitemap_file_name%
+
+    buccioni_sitemap.controller:
+        class: %buccioni_sitemap.controller.class%
+        arguments: [@buccioni_sitemap, @templating, @request]
+        scope: request
+    buccioni_sitemap.repository.url:
+        class: %buccioni_sitemap.repository.url.class%
+        factory_service: doctrine.orm.entity_manager
+        factory_method: getRepository
+        arguments: [%buccioni_sitemap.entity.url.class%]
+    buccioni_sitemap.provider.chain:
+        class: %buccioni_sitemap.provider.chain.class%
+    buccioni_sitemap.twig.extension:
+        class: %buccioni_sitemap.twig.extension.class%
+        arguments: [%buccioni_sitemap.config.base_url%]
+        tags:
+            -  { name: twig.extension }
+    %buccioni_sitemap.config.alias%:
+        alias: buccioni_sitemap

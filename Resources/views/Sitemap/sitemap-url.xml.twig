@@ -1,3 +1,4 @@
+<sitemap>
 <loc>{{ url.loc|berriart_sitemap_absolutize }}</loc>
 {% if url.lastmod %}
 <lastmod>{{ url.lastmod.format('c') }}</lastmod>
@@ -13,3 +14,4 @@
     {% include "BuccioniSitemapBundle:Sitemap:image.xml.twig" with { 'image': image } %}
 </image:image>
 {% endfor %}
+</sitemap>

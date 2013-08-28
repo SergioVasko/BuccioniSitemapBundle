@@ -13,9 +13,12 @@ namespace Buccioni\Bundle\SitemapBundle\Provider;
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
  */
+use Symfony\Component\Console\Output\OutputInterface;
 use Buccioni\Bundle\SitemapBundle\Manager\Sitemap;
 
 interface UrlProviderInterface
 {
-    function populate(Sitemap $sitemap);
+//   function generate(Sitemap $sitemap, OutputInterface $output=null);
+
+    function update(Sitemap $sitemap, OutputInterface $output=null);
 }

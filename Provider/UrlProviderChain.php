@@ -14,6 +14,7 @@ namespace Buccioni\Bundle\SitemapBundle\Provider;
  * file that was distributed with this source code.
  */
 
+use Symfony\Component\Console\Output\OutputInterface;
 use Buccioni\Bundle\SitemapBundle\Manager\Sitemap;
 
 class UrlProviderChain implements UrlProviderInterface
@@ -30,10 +31,26 @@ class UrlProviderChain implements UrlProviderInterface
         $this->providers[] = $provider;
     }
 
-    public function populate(Sitemap $sitemap)
+    public function generate(Sitemap $sitemap, OutputInterface $output=null)
     {
         foreach ($this->providers as $provider) {
-            $provider->populate($sitemap);
+            $output->write('<info>  Processing '.get_class($provider).'</info>', true);
+            if(method_exists($provider, 'populate')){
+                $output->write(
+                        '  (!) <comment>Notice</comment> <info>Using deprecated'
+                        .' method populate instead of generate</info>'
+                        , true
+                );
+                $provider->populate($sitemap);
+            } else
+                $provider->generate($sitemap);
+        }
+    }
+
+    public function update(Sitemap $sitemap, OutputInterface $output=null)
+    {
+        foreach ($this->providers as $provider) {
+            $provider->update($sitemap);
         }
     }
 }

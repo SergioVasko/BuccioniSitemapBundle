@@ -17,13 +17,16 @@ namespace Buccioni\Bundle\SitemapBundle\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Buccioni\Bundle\SitemapBundle\Component\Command\ChainBasedCommand;
-use Buccioni\Bundle\SitemapBundle\Command\GenerateCommand;
 
-class PopulateCommand extends GenerateCommand {
-    const action = 'populate';
+class GenerateCommand extends ChainBasedCommand {
+    const action = 'generate';
 
     protected function configure() {
         $this->commandName()
-            ->setDescription('Alias of '.self::commandPrefix.parent::action.' for compatibility');
+            ->setDescription('Generate Sitemap files and populate it.');
+    }
+
+    public function command(InputInterface $input, OutputInterface $output) {
+        $this->chain->generate($this->sitemap, $output);
     }
 }

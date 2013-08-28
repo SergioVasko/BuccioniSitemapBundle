@@ -2,7 +2,6 @@ parameters:
     buccioni_sitemap.class: Buccioni\Bundle\SitemapBundle\Manager\Sitemap
     buccioni_sitemap.controller.class: Buccioni\Bundle\SitemapBundle\Controller\SitemapController
     buccioni_sitemap.entity.url.class: Buccioni\Bundle\SitemapBundle\Entity\Url
-    buccioni_sitemap.repository.url.class: Buccioni\Bundle\SitemapBundle\Repository\UrlRepository
     buccioni_sitemap.provider.chain.class: Buccioni\Bundle\SitemapBundle\Provider\UrlProviderChain
     buccioni_sitemap.twig.extension.class: Buccioni\Bundle\SitemapBundle\Twig\SitemapExtension
 
@@ -23,11 +22,6 @@ services:
         class: %buccioni_sitemap.controller.class%
         arguments: [@buccioni_sitemap, @templating, @request]
         scope: request
-    buccioni_sitemap.repository.url:
-        class: %buccioni_sitemap.repository.url.class%
-        factory_service: doctrine.orm.entity_manager
-        factory_method: getRepository
-        arguments: [%buccioni_sitemap.entity.url.class%]
     buccioni_sitemap.provider.chain:
         class: %buccioni_sitemap.provider.chain.class%
     buccioni_sitemap.twig.extension:

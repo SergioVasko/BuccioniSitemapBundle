@@ -20,6 +20,8 @@ use Buccioni\Bundle\SitemapBundle\Repository\UrlRepositoryInterface;
 class Sitemap
 {
     const reEnum                = '/^(.*?)(\d+)$/';
+    const reNameEnunm           = '/^%s(\d+)?$/';
+
     const filesSuffixExtension  = '.xml';
     const _ErrorFileNotExists   = 'Sitemap file "%s" does not exists.';
 
@@ -64,13 +66,13 @@ class Sitemap
     public function __construct($templating, $dir, $dirServerPath, $baseUrl, $limit, $fileName, $indexFileName, $swapSitemapFileName)
     {
             $this->setDir($dir);
-            $this->dirServerPath        = $dirServerPath;
-            $this->baseUrl              = $baseUrl;
-            $this->limit                = $limit;
-            $this->defaultFileName             = $fileName;
-            $this->defaultIndexFileName        = $indexFileName;
-            $this->swapSitemapFileName  = $swapSitemapFileName;
-            $this->templating           = $templating;
+            $this->dirServerPath            = $dirServerPath;
+            $this->baseUrl                  = $baseUrl;
+            $this->limit                    = $limit;
+            $this->defaultFileName          = $fileName;
+            $this->defaultIndexFileName     = $indexFileName;
+            $this->swapSitemapFileName      = $swapSitemapFileName;
+            $this->templating               = $templating;
     }
 
     public function __destruct() {
@@ -146,7 +148,7 @@ class Sitemap
         return $this->_addFile($name, false);
     }
 
-    private function _addFile($name, $index) {
+    private function _addFile($name, $addToIndex, $isIndex) {
         $fileName = $this->genFileName($name);
 
         if(file_exists($fileName))
@@ -157,9 +159,9 @@ class Sitemap
             ));
         else {
             touch($fileName);
-            $this->_openFile($name, false, $index);
+            $this->_openFile($name, false, $addToIndex, $isIndex);
 
-            if($index)
+            if($isIndex)
                 $this->sitemapIndex = $name;
 
             $this->initFile($name);
@@ -215,21 +217,21 @@ class Sitemap
         if(is_null($name))
             $name = $this->defaultIndexFileName;
 
-        return $this->_openFile($name, $addIfNotExists, true);
+        return $this->_openFile($name, $addIfNotExists, false, true);
     }
 
-    public function openFile($name, $addIfNotExists=false) {
-        return $this->_openFile($name, $addIfNotExists, false);
+    public function openFile($name, $addIfNotExists=false, $addToIndex=false) {
+        return $this->_openFile($name, $addIfNotExists, $addToIndex, false);
     }
 
-    private function _openFile($name, $addIfNotExists, $index) {
+    private function _openFile($name, $addIfNotExists, $addToIndex, $isIndex) {
         $this->processEndTemplates();
         $fileName = $this->genFileName($name);
 
         if(file_exists($fileName)) {
             $this->files[$name]     = fopen($fileName, 'ra+');
 
-            if($index) {
+            if($isIndex) {
                 if(!empty($this->sitemapIndex))
                     $this->closeFile($this->sitemapIndex);
 
@@ -238,13 +240,16 @@ class Sitemap
             } else
                 $this->setCurrentFile($name);
 
+            if($addToIndex)
+                $this->addSitemap($name);
+
             $this->seekFileToLastEntry($name);
 
             return $this;
         } elseif($addIfNotExists)
-            return $this->_addFile($name, $index);
+            return $this->_addFile($name, $addToIndex, $isIndex);
         else throw new \Exception(sprintf(
-                            self::_ErrorFileNotExists.'Consider the second bool parameter $addIfNoExists.'
+                            self::_ErrorFileNotExists.' Consider the second bool parameter $addIfNoExists.'
                             , $fileName
         ));
     }
@@ -263,19 +268,59 @@ class Sitemap
         return $this;
     }
 
-    public function deleteFile($name, $enumsToo=false) {
-        $sel = strlen(self::filesSuffixExtension);
+    public function getNameWithEnums(/* $name, [$name...] */) {
+        $names = func_get_args();
+        if(!empty($names) && is_array($names[0]))
+            $names = $names[0];
 
-        foreach(glob($this->dir.'/*'.self::filesSuffixExtension) as $file) {
-            if($enumsToo)
-                $filter = preg_match('/^'.$name.'(\d+)?$/', substr(basename($file), 0, -$sel));
-            else
-                $filter = substr(basename($file), 0, -$sel) === $name;
+        return $this->_fileNameWithEnums($names, true);
+    }
 
-            if($filter)
-                unlink($file);
+    public function getFileNameWithEnums(/* $name, [$name...] */) {
+        $names = func_get_args();
+        if(!empty($names) && is_array($names[0]))
+            $names = $names[0];
+
+        return $this->_fileNameWithEnums($names);
+    }
+
+    private function _fileNameWithEnums($names, $onlyNames=false) {
+        $sel    = strlen(self::filesSuffixExtension);
+        $files  = glob($this->dir.'/*'.self::filesSuffixExtension);
+
+        $names = func_get_args();
+        if(!empty($names) && is_array($names[0]))
+            $names = $names[0];
+
+        for($i=0,$c=count($files);$i<$c;++$i) {
+            $found = false;
+
+            foreach($names as &$name) {
+                $nameFromFile = substr(basename($files[$i]), 0, -$sel);
+                if($found = preg_match(sprintf(self::reNameEnunm, $name), $nameFromFile))
+                    break;
+            }
+
+            if(!$found) {
+                array_splice($files, $i--, 1);
+                --$c;
+            } elseif($onlyNames)
+                $files[$i] = $nameFromFile;
         }
 
+        return $files;
+    }
+
+    public function deleteFile($name, $enumsToo=false) {
+        if($enumsToo) {
+            foreach($this->getFileNameWithEnums($name) as $file)
+                unlink($file);
+        } else {
+            $file = $this->genFileName($name);
+
+            if(file_exists($file))
+                unlink($file);
+        }
         return $this;
     }
 
@@ -295,6 +340,10 @@ class Sitemap
 
             $this->sitemapindexendSeek = -strlen($this->sitemapindexend);
         }
+    }
+
+    public function lastUpdate($name) {
+        return filemtime($this->genFileName($name));
     }
 
     private function seekFileToLastEntry($name) {
@@ -326,6 +375,12 @@ class Sitemap
         $string     = '';
         $record     = false;
 
+        $seekAtStart =  (
+                            $seekMode === self::_findXMLModeSeekAtStartIter
+                            || $seekMode === self::_findXMLModeSeekAtStart
+                            || $seekMode === self::_findXMLModeRevSeekAtStart
+        );
+
         $return =   (
                         $seekMode === self::_findXMLModeSeekAtStartIter
                         && ftell($fp) !== 0
@@ -334,16 +389,29 @@ class Sitemap
                     : empty($findEqual)
         ;
 
-
         while(!feof($fp)) {
             $c     = fgetc($fp);
-            $buff .= $c;
+
+            if($seekMode === self::_findXMLModeRevSeekAtStart)
+                $buff = $c.$buff;
+            else
+                $buff .= $c;
+
             ++$lenBuff;
 
             if($lenBuff > $lenCur) {
-                $buff       = substr($buff, -$lenCur);
+                $buff       = $seekMode === self::_findXMLModeRevSeekAtStart
+                                ? substr($buff, 0, $lenCur)
+                                : substr($buff, -$lenCur)
+                ;
+
                 $lenBuff    = $lenCur;
             }
+
+            if($seekMode === self::_findXMLModeRevSeekAtStart)
+                $ec   = substr($buff, -1);
+            else
+                $ec   = &$c;
 
             if($record) {
                 $string .= $c;
@@ -352,32 +420,55 @@ class Sitemap
                     $lenBuff === $lenCur
                     && $buff === $elemEnd
                 ) {
-                    $record = false;
-                    $string = html_entity_decode(substr($string, 0, -$lenCur));
-                    $lenCur = $lenStart;
 
-                    if(!empty($findEqual)) {
+                    $string = html_entity_decode(substr($string, 0, -$lenCur));
+
+                    if(
+                        !empty($findEqual)
+                        && (
+                            $seekMode !== self::_findXMLModeSeekAtStartIter
+                            || $return
+                        )
+                    ) {
                         if($trim)
                             $string = trim($string);
 
                         $return = ($string === $findEqual);
                     }
 
-                    if($return)
+
+                    if($return) {
+                        if($seekAtStart)
+                            fseek($fp, $seekStart);
+
                         return $string;
-                    elseif($seekMode === self::_findXMLModeSeekAtStartIter)
+                    } elseif($seekMode === self::_findXMLModeSeekAtStartIter)
                         $return  = true;
+
+                    $record = false;
+                    $lenCur = $lenStart;
+                    $string = '';
                 }
             } else {
                 if(
                     $lenBuff === $lenCur
-                    && self::isXMLTagNameEnd($c)
+                    && self::isXMLTagNameEnd($ec)
                     && substr($buff, 0, -1) === $elemStart
                 ) {
-                    $seekStart = ftell($fp) - ($lenStart + 1);
+                    if($seekMode === self::_findXMLModeRevSeekAtStart) {
+                        $seekMode   = self::_findXMLModeSeekAtStart;
+                        $seekStart  = ftell($fp) - 1;
+                        fseek($fp, $lenStart - 1, SEEK_CUR);
+                    } else
+                        $seekStart = ftell($fp) - ($lenStart + 1);
+
                     $record = true;
                     $lenCur = $lenEnd;
                 }
+            }
+
+            if($seekMode === self::_findXMLModeRevSeekAtStart) {
+                fseek($fp, -2, SEEK_CUR);
             }
         }
     }
@@ -483,8 +574,52 @@ class Sitemap
         return $this;
     }
 
-    public function removeSitemap() {
-        // not implemented yet
+    public function removeSitemap($name, $index=null, $enums=false) {
+        if(is_null($index)) {
+            if(empty($this->sitemapIndex))
+                throw new \Exception('Cannot remove sitemap without a specific name or if not have opened index files.');
+            else
+                $index = $this->sitemapIndex;
+        }
+
+        if(!is_array($name))
+            $names = array($name);
+
+        if($enums)
+            $names = $this->getNameWithEnums($name);
+
+        foreach($names as &$name) {
+            if(!isset($this->files[$index]))
+                $this->openFile($index);
+
+            fseek($this->files[$index], 0);
+
+            while(!is_null($sitemapUrl=self::_findXMLElem($this->files[$index], self::XMLElementLoc, true, null, self::_findXMLModeSeekAtStartIter))) {
+                if(preg_match(sprintf(self::reNameEnunm, $name), $this->genNameFromPath($sitemapUrl))) {
+                    $xmlstr=self::_findXMLElem($this->files[$index], self::XMLElementSitemap, true, null, self::_findXMLModeRevSeekAtStart);
+
+                    $this->_deleteFileChunk(
+                                $this->genFileName($index)
+                                , $this->files[$index]
+                                , (strlen($xmlstr) + ((strlen(self::XMLElementSitemap) * 2) + 5))
+                    );
+                }
+            }
+        }
+    }
+
+    private function _deleteFileChunk($filePath, $fpw, $rseekOffset=0) {
+        flock($fpw, LOCK_EX);
+        $fpr=fopen($filePath, 'r');
+        fseek($fpr, ftell($fpw) + $rseekOffset, SEEK_SET);
+
+        while(!feof($fpr))
+            fwrite($fpw, fread($fpr, 4096), 4096);
+
+        fclose($fpr);
+
+        ftruncate($fpw, ftell($fpw));
+        flock($fpw, LOCK_UN);
     }
 
     public function addUrl(Url $url)
@@ -529,8 +664,40 @@ class Sitemap
         return $this;
     }
 
-    public function removeUrl(Url $url) {
-        // not implemented yet
+    public function removeUrl($url, $names=null, $enums=false) {
+        if($url instanceOf Url)
+            $url = $url->getLoc();
+        elseif(!is_string($url))
+            throw new \Exception(__METHOD__.' - Argument url must be a string or an instance of '.get_class(new Url()));
+
+        if(is_null($names)) {
+            if(count($this->files))
+                $names = array_keys($this->files);
+            else
+                throw new \Exception('Cannot remove an url without a specific names or if not have opened files.');
+        } elseif(is_string($names))
+            $names = array($names);
+
+        if($enums)
+            $names = $this->getNameWithEnums($names);
+
+        foreach($names as &$name) {
+            if(!isset($this->files[$name]))
+                $this->openFile($name);
+
+            fseek($this->files[$name], 0);
+
+            if(!is_null(self::_findXMLElem($this->files[$name], self::XMLElementLoc, true, $url, self::_findXMLModeSeekAtStart))) {
+                $xmlstr=self::_findXMLElem($this->files[$name], self::XMLElementSitemap, true, null, self::_findXMLModeRevSeekAtStart);
+
+                $this->_deleteFileChunk(
+                            $this->genFileName($name)
+                            , $this->files[$name]
+                            , (strlen($xmlstr) + ((strlen(self::XMLElementSitemap) * 2) + 5))
+                );
+            }
+        }
+
         return $this;
     }
 

@@ -60,6 +60,8 @@ class Sitemap
 
     private $templating;
 
+    private $filesEnum             = array();
+
     public $files                  = array();
     public $sitemaps               = array();
 
@@ -135,6 +137,93 @@ class Sitemap
 
     public function defaultIndexPath() {
         return self::genSitemapPath($this->defaultIndexFileName);
+    }
+
+
+    public function getNameWithEnums(/* $name, [$name...] */) {
+        $names = func_get_args();
+        if(!empty($names) && is_array($names[0]))
+            $names = $names[0];
+
+        return $this->_fileNameWithEnums($names, true);
+    }
+
+    public function getFileNameWithEnums(/* $name, [$name...] */) {
+        $names = func_get_args();
+        if(!empty($names) && is_array($names[0]))
+            $names = $names[0];
+
+        return $this->_fileNameWithEnums($names);
+    }
+
+    private function _fileNameWithEnums($names, $onlyNames=false) {
+        $sel    = strlen(self::filesSuffixExtension);
+        $files  = glob($this->dir.'/*'.self::filesSuffixExtension);
+
+        $names = func_get_args();
+        if(!empty($names) && is_array($names[0]))
+            $names = $names[0];
+
+        for($i=0,$c=count($files);$i<$c;++$i) {
+            $found = false;
+
+            foreach($names as &$name) {
+                $nameFromFile = substr(basename($files[$i]), 0, -$sel);
+                if($found = preg_match(sprintf(self::reNameEnunm, $name), $nameFromFile))
+                    break;
+            }
+
+            if(!$found) {
+                array_splice($files, $i--, 1);
+                --$c;
+            } elseif($onlyNames)
+                $files[$i] = $nameFromFile;
+        }
+
+        return $files;
+    }
+
+    public function setFileEnum($name) {
+        $names = $this->getNameWithEnums($name);
+
+        if(!empty($names)) {
+            $enumCount = 0;
+
+            foreach($names as &$ename)  {
+                $num = (int) preg_replace(
+                        sprintf(self::reNameEnunm, $name)
+                        , '$1'
+                        , $ename
+                );
+
+                if($num > $enumCount)
+                    $enumCount = $num;
+
+            }
+
+            $this->filesEnum[$name] = $enumCount;
+        }
+    }
+
+    public function currentEnumFile($name=null) {
+        return $this->_enumFile($name, false);
+    }
+
+    public function nextEnumFile($name=null) {
+        return $this->_enumFile($name, true);
+    }
+
+    private function _enumFile($name=null, $next=false) {
+        if(is_null($name))
+            $name = $this->currentFile;
+
+        if(!isset($this->filesEnum[$name]))
+            $this->setFileEnum($name);
+
+        if($next)
+            $this->filesEnum[$name] += 1;
+
+        return $name.$this->filesEnum[$name];
     }
 
     public function createIndexFile($name=null) {
@@ -217,18 +306,24 @@ class Sitemap
         if(is_null($name))
             $name = $this->defaultIndexFileName;
 
-        return $this->_openFile($name, $addIfNotExists, false, true);
+        return $this->_openFile($name, $addIfNotExists, false, false, true);
     }
 
-    public function openFile($name, $addIfNotExists=false, $addToIndex=false) {
-        return $this->_openFile($name, $addIfNotExists, $addToIndex, false);
+    public function openFile($name, $addIfNotExists=false, $lastEnum=false, $addToIndex=false) {
+        return $this->_openFile($name, $addIfNotExists, $lastEnum, $addToIndex, false);
     }
 
-    private function _openFile($name, $addIfNotExists, $addToIndex, $isIndex) {
+    private function _openFile($name, $addIfNotExists, $lastEnum, $addToIndex, $isIndex) {
         $this->processEndTemplates();
         $fileName = $this->genFileName($name);
 
         if(file_exists($fileName)) {
+            if(!$isIndex)
+                $this->setFileEnum($name);
+
+            if($lastEnum)
+                $name = $this->currentEnumFile($name);
+
             $this->files[$name]     = fopen($fileName, 'ra+');
 
             if($isIndex) {
@@ -266,49 +361,6 @@ class Sitemap
         }
 
         return $this;
-    }
-
-    public function getNameWithEnums(/* $name, [$name...] */) {
-        $names = func_get_args();
-        if(!empty($names) && is_array($names[0]))
-            $names = $names[0];
-
-        return $this->_fileNameWithEnums($names, true);
-    }
-
-    public function getFileNameWithEnums(/* $name, [$name...] */) {
-        $names = func_get_args();
-        if(!empty($names) && is_array($names[0]))
-            $names = $names[0];
-
-        return $this->_fileNameWithEnums($names);
-    }
-
-    private function _fileNameWithEnums($names, $onlyNames=false) {
-        $sel    = strlen(self::filesSuffixExtension);
-        $files  = glob($this->dir.'/*'.self::filesSuffixExtension);
-
-        $names = func_get_args();
-        if(!empty($names) && is_array($names[0]))
-            $names = $names[0];
-
-        for($i=0,$c=count($files);$i<$c;++$i) {
-            $found = false;
-
-            foreach($names as &$name) {
-                $nameFromFile = substr(basename($files[$i]), 0, -$sel);
-                if($found = preg_match(sprintf(self::reNameEnunm, $name), $nameFromFile))
-                    break;
-            }
-
-            if(!$found) {
-                array_splice($files, $i--, 1);
-                --$c;
-            } elseif($onlyNames)
-                $files[$i] = $nameFromFile;
-        }
-
-        return $files;
     }
 
     public function deleteFile($name, $enumsToo=false) {
@@ -510,19 +562,10 @@ class Sitemap
         return $this;
     }
 
-    public function nextCurrentEnumFile() {
-        $this->fileEnumCount += 1;
-
-        return preg_replace(
-                        self::reEnum
-                        , '$1'
-                        , $this->defaultFileName
-                )
-                .$this->fileEnumCount
-        ;
-    }
-
     public function addSitemap() {
+        if(!isset($this->files[$this->sitemapIndex]))
+            throw new \Exception("Cannot add sitemap when I don't have one opened yet");
+
         $sitemaps = func_get_args();
 
         if(!($c=count($sitemaps)))
@@ -622,9 +665,13 @@ class Sitemap
         flock($fpw, LOCK_UN);
     }
 
-    public function addUrl(Url $url)
+    public function addUrl(Url $url, $name=null, $addIfNotExists=false)
     {
-        $this->checkCurrentFile();
+        if(is_null($name)) {
+            $this->checkCurrentFile();
+            $name = $this->currentFile();
+        } elseif(!isset($this->files[$name]))
+            $this->openFile($name, $addIfNotExists);
 
         $buff = 3072 + (count($url->getImages()) * 5120) + abs($this->sitemapendSeek);
 
@@ -646,7 +693,7 @@ class Sitemap
 
             if($this->swapSitemapFileName) {
                 $this->defaultIndexFileName = $this->currentFile;
-                $this->moveFile($this->currentFile, $this->nextCurrentEnumFile());
+                $this->moveFile($this->currentFile, $this->nextEnumFile());
             }
 
             if(empty($this->sitemapIndex))
@@ -654,7 +701,7 @@ class Sitemap
 
             $oldFile  = $this->currentFile;
             $this
-                ->addFile($this->nextCurrentEnumFile())
+                ->addFile($this->nextEnumFile())
                 ->addSitemap($oldFile, $this->currentFile)
             ;
 
@@ -701,8 +748,8 @@ class Sitemap
         return $this;
     }
 
-    public function add(Url $url) {
-        return $this->addUrl($url);
+    public function add(Url $url, $name=null, $addIfNotExists=false) {
+        return $this->addUrl($url, $name, $addIfNotExists);
     }
 
     public function remove(Url $url) {

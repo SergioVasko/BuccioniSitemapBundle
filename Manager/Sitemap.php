@@ -41,9 +41,6 @@ class Sitemap
     public $swapSitemapFileName     = false;
     public $usingDefaultFile        = false;
 
-    public $count              = 0;
-    public $fileEnumCount      = 0;
-
     public $limit               = 50000;
 
     private $sitemapend;
@@ -61,6 +58,7 @@ class Sitemap
     private $templating;
 
     private $filesEnum             = array();
+    private $filesCounter          = array();
 
     public $files                  = array();
     public $sitemaps               = array();
@@ -210,7 +208,7 @@ class Sitemap
     }
 
     public function nextEnumFile($name=null) {
-        return $this->_enumFile($name, true);
+        return $this->_enumFile(is_null($name) ? null : preg_replace(self::reEnum, '$1', $name), true);
     }
 
     private function _enumFile($name=null, $next=false) {
@@ -223,7 +221,15 @@ class Sitemap
         if($next)
             $this->filesEnum[$name] += 1;
 
-        return $name.$this->filesEnum[$name];
+        return $name.($this->filesEnum[$name] > 0 ? $this->filesEnum[$name] : '');
+    }
+
+    public function setCounterOf($name) {
+        // not implemented properly yet
+        if(!isset($this->filesCounter[$name]))
+            $this->filesCounter[$name] = 0;
+
+        return $this;
     }
 
     public function createIndexFile($name=null) {
@@ -233,8 +239,8 @@ class Sitemap
         return $this->_addFile($name, true);
     }
 
-    public function addFile($name) {
-        return $this->_addFile($name, false);
+    public function addFile($name, $addToIndex=false) {
+        return $this->_addFile($name, $addToIndex, false);
     }
 
     private function _addFile($name, $addToIndex, $isIndex) {
@@ -242,13 +248,13 @@ class Sitemap
 
         if(file_exists($fileName))
             throw new \Exception(sprintf(
-                            '%s file "%s" yet exists. Consider the use of openFile() method instead.'
-                            , 'Sitemap'.(($index) ? ' Index' : null)
-                            , $fileName
+                        '%s file "%s" yet exists. Consider the use of openFile() method instead.'
+                        , 'Sitemap'.(($isIndex) ? ' Index' : null)
+                        , $fileName
             ));
         else {
             touch($fileName);
-            $this->_openFile($name, false, $addToIndex, $isIndex);
+            $this->_openFile($name, false, $addToIndex, false, $isIndex);
 
             if($isIndex)
                 $this->sitemapIndex = $name;
@@ -332,8 +338,10 @@ class Sitemap
 
                 $this->sitemapIndex = $name;
                 $this->readSitemapsFromIndex();
-            } else
+            } else {
                 $this->setCurrentFile($name);
+                $this->setCounterOf($name);
+            }
 
             if($addToIndex)
                 $this->addSitemap($name);
@@ -350,9 +358,16 @@ class Sitemap
     }
 
     public function closeFile($name) {
+        if(isset($this->filesEnum[$name]))
+            unset($this->filesEnum[$name]);
+
+        if(isset($this->filesCounter[$name]))
+            unset($this->filesCounter[$name]);
+
         if(isset($this->files[$name])) {
             fclose($this->files[$name]);
             unset($this->files[$name]);
+
 
             if($this->sitemapIndex === $name) {
                 $this->sitemapIndex = null;
@@ -665,18 +680,59 @@ class Sitemap
         flock($fpw, LOCK_UN);
     }
 
-    public function addUrl(Url $url, $name=null, $addIfNotExists=false)
+    public function addUrl(Url $url, $name=null, $addIfNotExists=false, $lastEnum=false)
     {
         if(is_null($name)) {
             $this->checkCurrentFile();
-            $name = $this->currentFile();
-        } elseif(!isset($this->files[$name]))
+            $name = $this->currentFile;
+        }
+
+        if($lastEnum)
+            $name = $this->currentEnumFile($name);
+
+        if(!isset($this->files[$name]))
             $this->openFile($name, $addIfNotExists);
+
+        if($this->filesCounter[$name]>=$this->limit) {
+            $lastEnum = $this->currentEnumFile($name);
+
+            if(
+                $lastEnum !== $name
+                && (
+                    (!isset($this->filesCounter[$lastEnum]))
+                    || $this->filesCounter[$lastEnum] < $this->limit
+                )
+            )
+                $name = $lastEnum;
+            else {
+                $toIndex = array();
+
+                if($this->swapSitemapFileName && empty($this->sitemapIndex)) {
+                    $nextName = $this->nextEnumFile($name);
+
+                    $this->defaultIndexFileName = $name;
+                    $this->moveFile($name, $nextName);
+
+                    $name = $nextName;
+                }
+
+                if(empty($this->sitemapIndex))
+                    $this->openIndexFile(null, true);
+
+                $oldFile  = $name;
+                $name     = $this->nextEnumFile($name);
+
+                $this
+                    ->addFile($name)
+                    ->addSitemap($oldFile, $name)
+                ;
+            }
+        }
 
         $buff = 3072 + (count($url->getImages()) * 5120) + abs($this->sitemapendSeek);
 
         fwrite(
-                $this->files[$this->currentFile]
+                $this->files[$name]
                 , $this->templating->render(
                         'BuccioniSitemapBundle:Sitemap:sitemap-url.xml.twig'
                         , compact('url')
@@ -684,29 +740,8 @@ class Sitemap
                 , $buff
         );
 
-        $this->seekFileToLastEntry($this->currentFile);
-
-        $this->count++;
-
-        if($this->count>=$this->limit) {
-            $toIndex = array();
-
-            if($this->swapSitemapFileName) {
-                $this->defaultIndexFileName = $this->currentFile;
-                $this->moveFile($this->currentFile, $this->nextEnumFile());
-            }
-
-            if(empty($this->sitemapIndex))
-                $this->openIndexFile(null, true);
-
-            $oldFile  = $this->currentFile;
-            $this
-                ->addFile($this->nextEnumFile())
-                ->addSitemap($oldFile, $this->currentFile)
-            ;
-
-            $this->count = 0;
-        }
+        $this->seekFileToLastEntry($name);
+        ++$this->filesCounter[$name];
 
         return $this;
     }
@@ -742,6 +777,8 @@ class Sitemap
                             , $this->files[$name]
                             , (strlen($xmlstr) + ((strlen(self::XMLElementSitemap) * 2) + 5))
                 );
+
+                --$this->filesCounter[$name];
             }
         }
 

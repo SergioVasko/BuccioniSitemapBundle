@@ -183,10 +183,9 @@ class Sitemap
 
     public function setFileEnum($name) {
         $names = $this->getNameWithEnums($name);
+        $enumCount = 0;
 
         if(!empty($names)) {
-            $enumCount = 0;
-
             foreach($names as &$ename)  {
                 $num = (int) preg_replace(
                         sprintf(self::reNameEnunm, $name)
@@ -198,9 +197,9 @@ class Sitemap
                     $enumCount = $num;
 
             }
-
-            $this->filesEnum[$name] = $enumCount;
         }
+
+        $this->filesEnum[$name] = $enumCount;
     }
 
     public function currentEnumFile($name=null) {
@@ -254,7 +253,7 @@ class Sitemap
             ));
         else {
             touch($fileName);
-            $this->_openFile($name, false, $addToIndex, false, $isIndex);
+            $this->_openFile($name, false, false, $addToIndex, $isIndex);
 
             if($isIndex)
                 $this->sitemapIndex = $name;
@@ -330,7 +329,10 @@ class Sitemap
             if($lastEnum)
                 $name = $this->currentEnumFile($name);
 
-            $this->files[$name]     = fopen($fileName, 'ra+');
+            $this->files[$name]     = fopen($fileName, 'rwa+');
+
+            stream_set_write_buffer($this->files[$name], 0);
+            stream_set_read_buffer($this->files[$name], 0);
 
             if($isIndex) {
                 if(!empty($this->sitemapIndex))
@@ -341,10 +343,10 @@ class Sitemap
             } else {
                 $this->setCurrentFile($name);
                 $this->setCounterOf($name);
-            }
 
-            if($addToIndex)
-                $this->addSitemap($name);
+                if($addToIndex)
+                    $this->addSitemap($name);
+            }
 
             $this->seekFileToLastEntry($name);
 
@@ -591,8 +593,11 @@ class Sitemap
         $buff = 3072 + abs($this->sitemapindexendSeek);
 
         foreach($sitemaps as &$sitemap) {
+
             if(!in_array($sitemap, $this->sitemaps)) {
                 if(file_exists($this->genFileName($sitemap))) {
+                    $this->seekFileToLastEntry($this->sitemapIndex);
+
                     fwrite(
                             $this->files[$this->sitemapIndex]
                             , $this->templating->render(
@@ -604,7 +609,6 @@ class Sitemap
                             , $buff
                     );
 
-                    $this->seekFileToLastEntry($this->sitemapIndex);
                     $this->sitemaps[] = $sitemap;
                 } else throw new \Exception(sprintf(self::_ErrorFileNotExists, $sitemap));
             }
@@ -628,6 +632,8 @@ class Sitemap
             if(!in_array($name, $this->sitemaps))
                 $this->sitemaps[] = $name;
         }
+
+        $this->seekFileToLastEntry($this->sitemapIndex);
 
         return $this;
     }

@@ -41,16 +41,16 @@ class UrlProviderChain implements UrlProviderInterface
                         .' method populate instead of generate</info>'
                         , true
                 );
-                $provider->populate($sitemap);
+                $provider->populate($sitemap, $output);
             } else
-                $provider->generate($sitemap);
+                $provider->generate($sitemap, $output);
         }
     }
 
     public function update(Sitemap $sitemap, OutputInterface $output=null)
     {
         foreach ($this->providers as $provider) {
-            $provider->update($sitemap);
+            $provider->update($sitemap, $output);
         }
     }
 }

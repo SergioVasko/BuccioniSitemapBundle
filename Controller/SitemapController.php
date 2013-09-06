@@ -45,7 +45,7 @@ class SitemapController
 
     public function sitemap()
     {
-        return $this->redirect($this->sitemap->defaultPath());
+        return $this->redirect($this->sitemap->defaultSitemapPath());
     }
 
     public function sitemapIndex()

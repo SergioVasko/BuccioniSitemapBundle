@@ -9,7 +9,8 @@ services:
     buccioni_sitemap:
         class: %buccioni_sitemap.class%
         arguments:
-            - @templating
+            - @service_container
+            - %buccioni_sitemap.config.template_type%
             - %buccioni_sitemap.config.dir%
             - %buccioni_sitemap.config.dir_server_path%
             - %buccioni_sitemap.config.base_url%

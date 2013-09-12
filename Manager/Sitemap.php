@@ -33,6 +33,8 @@ class Sitemap
     const _findXMLModeSeekAtStart       = 1;
     const _findXMLModeSeekAtStartIter   = 2;
     const _findXMLModeRevSeekAtStart    = 3;
+    const _findXMLModeBoolFast          = 4;
+    const _findXMLModeBool              = 5;
 
     public $dir;
     public $dirServerPath;
@@ -56,23 +58,52 @@ class Sitemap
     public $defaultFileName;
 
     private $templating;
+    private $container;
 
     private $filesEnum             = array();
-    private $filesCounter          = array();
+    public $filesCounter          = array();
 
     public $files                  = array();
     public $sitemaps               = array();
 
-    public function __construct($templating, $dir, $dirServerPath, $baseUrl, $limit, $fileName, $indexFileName, $swapSitemapFileName)
+    public $twigExtension;
+
+    public function __construct($container, $templateType, $dir, $dirServerPath, $baseUrl, $limit, $fileName, $indexFileName, $swapSitemapFileName)
     {
-            $this->setDir($dir);
-            $this->dirServerPath            = $dirServerPath;
-            $this->baseUrl                  = $baseUrl;
-            $this->limit                    = $limit;
-            $this->defaultFileName          = $fileName;
-            $this->defaultIndexFileName     = $indexFileName;
-            $this->swapSitemapFileName      = $swapSitemapFileName;
-            $this->templating               = $templating;
+        $this->setDir($dir);
+
+        switch($templateType) {
+            case 'subphp':
+                $this->templateType = self::templateTypeSubphp;
+            break;
+            case 'subphp-unstable':
+                $this->templateType = self::templateTypeSubphpUnstable;
+            break;
+            default:
+                $this->templateType = self::templateTypeTwig;
+        }
+
+
+        $this->dirServerPath            = $dirServerPath;
+        $this->baseUrl                  = $baseUrl;
+        $this->limit                    = $limit;
+        $this->defaultFileName          = $fileName;
+        $this->defaultIndexFileName     = $indexFileName;
+        $this->swapSitemapFileName      = $swapSitemapFileName;
+        $this->container                = $container;
+        $this->templating               = ($this->templateType === self::templateTypeTwig)
+                                            ? $container->get('templating')
+                                            : $this
+        ;
+
+        if(is_null($this->twigExtension)) {
+            $reflEnviron=new \ReflectionProperty($this->container->get('templating'), 'environment');
+            $reflEnviron->setAccessible(true);
+            $twigEnvironment = $reflEnviron->getValue($this->container->get('templating'));
+
+            $twigExtensions = $twigEnvironment->getExtensions();
+            $this->twigExtension = $twigExtensions['buccioni_sitemap'];
+        }
     }
 
     public function __destruct() {
@@ -220,13 +251,48 @@ class Sitemap
         if($next)
             $this->filesEnum[$name] += 1;
 
-        return $name.($this->filesEnum[$name] > 0 ? $this->filesEnum[$name] : '');
+        return $name.($this->filesEnum[$name] === 0 ? '' : $this->filesEnum[$name] );
     }
 
     public function setCounterOf($name) {
-        // not implemented properly yet
+        if(!isset($this->files[$name]))
+            $this->openFile($name);
+
         if(!isset($this->filesCounter[$name]))
             $this->filesCounter[$name] = 0;
+
+        $fp = $this->files[$name];
+        fseek($fp, 0, SEEK_SET);
+
+        $elemStart  = '<'.self::XMLElementSitemap;
+        $len        = strlen(self::XMLElementSitemap);
+        $lenCur     = $len + 2;
+        $lenBuff    = 0;
+        $buff       = '';
+
+        while(!feof($fp)) {
+            $c     = fgetc($fp);
+            $buff .= $c;
+
+            ++$lenBuff;
+
+            if($lenBuff > $lenCur) {
+                $buff       = substr($buff, -$lenCur);
+                $lenBuff    = $lenCur;
+            }
+
+            if(
+                $lenBuff === $lenCur
+                && self::isXMLTagNameEnd($c)
+                && substr($buff, 0, -1) === $elemStart
+            ) {
+                ++$this->filesCounter[$name];
+                $buff    = '';
+                $lenBuff = 0;
+            }
+        }
+
+        $this->seekFileToLastEntry($name);
 
         return $this;
     }
@@ -272,8 +338,8 @@ class Sitemap
                     $this->files[$name]
                     , $this->templating->render(
                         ($name === $this->sitemapIndex
-                            ? 'BuccioniSitemapBundle:Sitemap:sitemapindex.xml.twig'
-                            : 'BuccioniSitemapBundle:Sitemap:sitemap.xml.twig'
+                            ? 'BuccioniSitemapBundle:Sitemap:sitemapindex.xml.php'
+                            : 'BuccioniSitemapBundle:Sitemap:sitemap.xml.php'
                         )
                         , array('sitemap' => $this)
                     )
@@ -396,7 +462,7 @@ class Sitemap
     private function processEndTemplates() {
         if(empty($this->sitemapend)) {
             $this->sitemapend = $this->templating->render(
-                            'BuccioniSitemapBundle:Sitemap:sitemap-end.xml.twig'
+                     'BuccioniSitemapBundle:Sitemap:sitemap-end.xml.php'
             );
 
             $this->sitemapendSeek = -strlen($this->sitemapend);
@@ -404,7 +470,7 @@ class Sitemap
 
         if(empty($this->sitemapindexend)) {
             $this->sitemapindexend = $this->templating->render(
-                            'BuccioniSitemapBundle:Sitemap:sitemapindex-end.xml.twig'
+                    'BuccioniSitemapBundle:Sitemap:sitemapindex-end.xml.php'
             );
 
             $this->sitemapindexendSeek = -strlen($this->sitemapindexend);
@@ -444,6 +510,8 @@ class Sitemap
         $string     = '';
         $record     = false;
 
+        $rev        = $seekMode === self::_findXMLModeRevSeekAtStart;
+
         $seekAtStart =  (
                             $seekMode === self::_findXMLModeSeekAtStartIter
                             || $seekMode === self::_findXMLModeSeekAtStart
@@ -461,7 +529,7 @@ class Sitemap
         while(!feof($fp)) {
             $c     = fgetc($fp);
 
-            if($seekMode === self::_findXMLModeRevSeekAtStart)
+            if($rev)
                 $buff = $c.$buff;
             else
                 $buff .= $c;
@@ -469,7 +537,7 @@ class Sitemap
             ++$lenBuff;
 
             if($lenBuff > $lenCur) {
-                $buff       = $seekMode === self::_findXMLModeRevSeekAtStart
+                $buff       = $rev
                                 ? substr($buff, 0, $lenCur)
                                 : substr($buff, -$lenCur)
                 ;
@@ -477,7 +545,7 @@ class Sitemap
                 $lenBuff    = $lenCur;
             }
 
-            if($seekMode === self::_findXMLModeRevSeekAtStart)
+            if($rev)
                 $ec   = substr($buff, -1);
             else
                 $ec   = &$c;
@@ -505,7 +573,6 @@ class Sitemap
                         $return = ($string === $findEqual);
                     }
 
-
                     if($return) {
                         if($seekAtStart)
                             fseek($fp, $seekStart);
@@ -524,7 +591,9 @@ class Sitemap
                     && self::isXMLTagNameEnd($ec)
                     && substr($buff, 0, -1) === $elemStart
                 ) {
-                    if($seekMode === self::_findXMLModeRevSeekAtStart) {
+                    if($seekMode === self::_findXMLModeBoolFast)
+                        return true;
+                    else if($rev) {
                         $seekMode   = self::_findXMLModeSeekAtStart;
                         $seekStart  = ftell($fp) - 1;
                         fseek($fp, $lenStart - 1, SEEK_CUR);
@@ -536,10 +605,16 @@ class Sitemap
                 }
             }
 
-            if($seekMode === self::_findXMLModeRevSeekAtStart) {
+            if($rev) {
                 fseek($fp, -2, SEEK_CUR);
             }
         }
+
+        if(
+            $seekMode === self::_findXMLModeBoolFast
+            || $seekMode === self::_findXMLModeBool
+        )
+            return false;
     }
 
     public static function isXMLTagNameEnd($c) {
@@ -556,6 +631,107 @@ class Sitemap
             break;
             default:
                 return false;
+        }
+    }
+
+    public $templateNames   = array();
+    public $templates       = array();
+
+    public function absolutize($url) {
+        return $this->twigExtension->getAbsoluteUrl($url);
+    }
+
+    private function templatePath($name) {
+        return $this->container->get('templating.locator')->locate(
+            $this->container->get('templating.name_parser')->parse($name)
+        );
+    }
+
+    const templateTypeTwig             = 0;
+    const templateTypeSubphp           = 1;
+    const templateTypeSubphpUnstable   = 2;
+
+    public $templateType = self::templateTypeSubphpUnstable;
+
+    const reTemplateInclude = '/<\?php\s+include\s+(.*?)\s+\?>/smx';
+
+    public function __get_tpl_contents($matches) {
+        return file_get_contents(eval('return $this->templatePath('.$matches[1].');'));
+    }
+
+    public function render($name, $environment=array()) {
+        if(!isset($this->templateNames[$name])) {
+            $path = $this->templatePath($name);
+            $this->templateNames[$name] = '___sitemaptemplate__'.hash('sha256', $path);
+
+            switch($this->templateType) {
+                case self::templateTypeSubphpUnstable:
+                    $template = str_replace(
+                        "'"
+                        , "\\'"
+                        , preg_replace_callback(
+                                self::reTemplateInclude
+                                , array($this, '__get_tpl_contents')
+                                , file_get_contents($path)
+                        )
+                    );
+
+                    if(substr($template, 0, 3) === '<?=')
+                        $template = '/**/$___='.substr($template, 3);
+                    elseif(substr($template, 0, 5) !== '<?php')
+                        $template = '$___=\''.$template;
+
+                    if(substr($template, -2) !== '?>')
+                        $template .= '\'';
+
+                    $template = preg_replace(
+                        array(
+                             '/<\?=/msx'
+                            , '/<\?php/msx'
+                            , '/\?\>/msx'
+                        )
+                        , array(
+                             '\';$___.='
+                            , '\';'
+                            , ';$___.=\''
+                        )
+                        ,$template
+                    ).';';
+
+                    $GLOBALS[$this->templateNames[$name]] = $template;
+                    unset($path);
+                break;
+                case self::templateTypeSubphp:
+                    $GLOBALS[$this->templateNames[$name]] = preg_replace_callback(
+                        self::reTemplateInclude
+                        , array($this, '__get_tpl_contents')
+                        , file_get_contents($path)
+                    );
+
+                    unset($path);
+                break;
+                default:
+            }
+
+            if(!defined('VARIABLE_STREAM'))
+                include(__DIR__.'/../Include/VariableStream.php');
+        }
+
+        extract($environment, EXTR_OVERWRITE);
+        if(!isset($environment['environment']))
+            unset($environment);
+
+        switch($this->templateType) {
+            case self::templateTypeSubphpUnstable:
+                eval($GLOBALS[$this->templateNames[$name]]);
+                return $___;
+            break;
+            case self::templateTypeSubphp:
+                ob_start();
+                include 'var://'.$this->templateNames[$name];
+                return ob_get_clean();
+            break;
+            default:
         }
     }
 
@@ -601,7 +777,7 @@ class Sitemap
                     fwrite(
                             $this->files[$this->sitemapIndex]
                             , $this->templating->render(
-                                    'BuccioniSitemapBundle:Sitemap:sitemapindex-sitemap.xml.twig'
+                                    'BuccioniSitemapBundle:Sitemap:sitemapindex-sitemap.xml.php'
                                     , array(
                                         'path' => $this->genSitemapPath($sitemap)
                                     )
@@ -736,17 +912,17 @@ class Sitemap
         }
 
         $buff = 3072 + (count($url->getImages()) * 5120) + abs($this->sitemapendSeek);
+        $this->seekFileToLastEntry($name);
 
-        fwrite(
+            fwrite(
                 $this->files[$name]
                 , $this->templating->render(
-                        'BuccioniSitemapBundle:Sitemap:sitemap-url.xml.twig'
+                        'BuccioniSitemapBundle:Sitemap:sitemap-url.xml.php'
                         , compact('url')
                 ).$this->sitemapend
                 , $buff
         );
 
-        $this->seekFileToLastEntry($name);
         ++$this->filesCounter[$name];
 
         return $this;

@@ -34,6 +34,7 @@ class Configuration implements ConfigurationInterface
 
         $rootNode
             ->children()
+                ->scalarNode('template_type')->defaultValue('twig')->end()
                 ->scalarNode('base_url')->isRequired()->cannotBeEmpty()->end()
                 ->scalarNode('alias')->defaultValue('sitemap')->end()
                 ->scalarNode('file_name')->defaultValue('sitemap')->end()

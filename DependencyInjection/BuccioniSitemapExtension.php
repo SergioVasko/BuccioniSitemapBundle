@@ -74,6 +74,7 @@ class BuccioniSitemapExtension extends Extension
         unset($webRoot);
         unset($serverDir);
 
+        $container->setParameter('buccioni_sitemap.config.template_type', $config['template_type']);
         $container->setParameter('buccioni_sitemap.config.base_url', $config['base_url']);
         $container->setParameter('buccioni_sitemap.config.url_limit', $config['url_limit']);
         $container->setParameter('buccioni_sitemap.config.file_name', $config['file_name']);

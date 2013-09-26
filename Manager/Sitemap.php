@@ -265,32 +265,24 @@ class Sitemap
         fseek($fp, 0, SEEK_SET);
 
         $elemStart  = '<'.self::XMLElementSitemap;
-        $len        = strlen(self::XMLElementSitemap);
-        $lenCur     = $len + 2;
-        $lenBuff    = 0;
-        $buff       = '';
+        $len        = strlen(self::XMLElementSitemap) + 1;
+		$buff 		= '';
 
-        while(!feof($fp)) {
-            $c     = fgetc($fp);
-            $buff .= $c;
+		while(!feof($fp)){
+			$buff    = fread($fp, 4096);
+			$pos     = 0;
 
-            ++$lenBuff;
+			while(($pos=strpos($buff, $elemStart, $pos)) !== false) {
+                if(isset($buff{$pos + $len}) && $this::isXMLTagNameEnd($buff{$pos + $len})) {
+                    ++$this->filesCounter[$name];
+                }
 
-            if($lenBuff > $lenCur) {
-                $buff       = substr($buff, -$lenCur);
-                $lenBuff    = $lenCur;
-            }
+				++$pos;
+			}
 
-            if(
-                $lenBuff === $lenCur
-                && self::isXMLTagNameEnd($c)
-                && substr($buff, 0, -1) === $elemStart
-            ) {
-                ++$this->filesCounter[$name];
-                $buff    = '';
-                $lenBuff = 0;
-            }
-        }
+			if(isset($buff{$len}))
+				fseek($fp, -$len, SEEK_CUR);
+		}
 
         $this->seekFileToLastEntry($name);
 

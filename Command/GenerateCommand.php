@@ -14,6 +14,7 @@ namespace Buccioni\Bundle\SitemapBundle\Command;
  * file that was distributed with this source code.
  */
 
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Buccioni\Bundle\SitemapBundle\Component\Command\ChainBasedCommand;
@@ -23,6 +24,11 @@ class GenerateCommand extends ChainBasedCommand {
 
     protected function configure() {
         $this->commandName()
+        	->addArgument(
+        			'arg'
+        			, InputArgument::IS_ARRAY | InputArgument::OPTIONAL
+        			, 'Arguments stack'
+        	)
             ->setDescription('Generate Sitemap files and populate it.');
     }
 

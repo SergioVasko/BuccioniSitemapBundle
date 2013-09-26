@@ -487,9 +487,16 @@ class Sitemap
                 , ($name === $this->sitemapIndex
                     ? $this->sitemapindexendSeek
                     : $this->sitemapendSeek
-                )
+                ) - 1
                 , SEEK_END
         );
+
+        fseek($this->files[$name], -5, SEEK_CUR);
+
+        if(ftell($this->files[$name]) !== 0) {
+            while(fgetc($this->files[$name]) !== '<');
+            fseek($this->files[$name], -1, SEEK_CUR);
+        }
 
         return $this;
     }
@@ -557,7 +564,6 @@ class Sitemap
                     $lenBuff === $lenCur
                     && $buff === $elemEnd
                 ) {
-
                     $string = html_entity_decode(substr($string, 0, -$lenCur));
 
                     if(
@@ -597,6 +603,8 @@ class Sitemap
                         $seekMode   = self::_findXMLModeSeekAtStart;
                         $seekStart  = ftell($fp) - 1;
                         fseek($fp, $lenStart - 1, SEEK_CUR);
+
+                        $rev = false;
                     } else
                         $seekStart = ftell($fp) - ($lenStart + 1);
 
@@ -829,29 +837,42 @@ class Sitemap
             $names = $this->getNameWithEnums($name);
 
         foreach($names as &$name) {
-            if(!isset($this->files[$index]))
-                $this->openFile($index);
+            $sitemap_offset = array_search($name, $this->sitemaps);
 
-            fseek($this->files[$index], 0);
+            if($sitemap_offset !== false) {
+                if(!isset($this->files[$index]))
+                    $this->openFile($index);
 
-            while(!is_null($sitemapUrl=self::_findXMLElem($this->files[$index], self::XMLElementLoc, true, null, self::_findXMLModeSeekAtStartIter))) {
-                if(preg_match(sprintf(self::reNameEnunm, $name), $this->genNameFromPath($sitemapUrl))) {
-                    $xmlstr=self::_findXMLElem($this->files[$index], self::XMLElementSitemap, true, null, self::_findXMLModeRevSeekAtStart);
+                fseek($this->files[$index], 0);
 
-                    $this->_deleteFileChunk(
-                                $this->genFileName($index)
-                                , $this->files[$index]
-                                , (strlen($xmlstr) + ((strlen(self::XMLElementSitemap) * 2) + 5))
-                    );
+                while(!is_null($sitemapUrl=self::_findXMLElem($this->files[$index], self::XMLElementLoc, true, null, self::_findXMLModeSeekAtStartIter))) {
+                    if(preg_match(sprintf(self::reNameEnunm, $name), $this->genNameFromPath($sitemapUrl))) {
+                        $xmlstr=self::_findXMLElem($this->files[$index], self::XMLElementSitemap, true, null, self::_findXMLModeRevSeekAtStart);
+
+                        $this->_deleteFileChunk(
+                                    $this->genFileName($index)
+                                    , $this->files[$index]
+                                    , (strlen($xmlstr) + ((strlen(self::XMLElementSitemap) * 2) + 5))
+                        );
+
+                        (unset) array_splice($this->sitemaps, $sitemap_offset, 1);
+                    }
                 }
             }
         }
+
+        return $this;
     }
 
     private function _deleteFileChunk($filePath, $fpw, $rseekOffset=0) {
         flock($fpw, LOCK_EX);
+
         $fpr=fopen($filePath, 'r');
         fseek($fpr, ftell($fpw) + $rseekOffset, SEEK_SET);
+
+        while(fgetc($fpr) !== '<')  ;
+
+        fseek($fpr, -1, SEEK_CUR);
 
         while(!feof($fpr))
             fwrite($fpw, fread($fpr, 4096), 4096);

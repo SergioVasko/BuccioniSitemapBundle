@@ -11,8 +11,6 @@
         }
     ],
     "require": {
-        "symfony/framework-bundle": "2.5",
-        "doctrine/common": ">=2.0"
     },
     "autoload": {
         "psr-0": { "Buccioni\\Bundle\\SitemapBundle": "" }
